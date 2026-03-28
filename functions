@@ -4,6 +4,17 @@ ready-dokku() {
   "$DOKKU_READY_BIN" "$@"
 }
 
+ready-dokku-root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    ready-dokku "$@"
+    return 0
+  fi
+
+  command -v sudo >/dev/null 2>&1 || dokku_log_fail "Dokku plugin installation requires root privileges or sudo access."
+  sudo -n true >/dev/null 2>&1 || dokku_log_fail "Dokku plugin installation requires root privileges. Re-run as root or configure passwordless sudo."
+  sudo "$DOKKU_READY_BIN" "$@"
+}
+
 ready-trim() {
   local value="$*"
   value="${value#"${value%%[![:space:]]*}"}"
@@ -85,6 +96,52 @@ ready-app-exists() {
 
 ready-postgres-exists() {
   ready-dokku postgres:exists "$1" >/dev/null 2>&1
+}
+
+ready-plugin-installed() {
+  local plugin_name="$1"
+
+  if ready-has-command "plugin:installed"; then
+    ready-dokku plugin:installed "$plugin_name" >/dev/null 2>&1
+    return $?
+  fi
+
+  return 1
+}
+
+ready-install-plugin() {
+  local plugin_name="$1" plugin_url="$2" command_name="$3"
+
+  if ready-has-command "$command_name"; then
+    return 0
+  fi
+
+  ready-assert-command "plugin:install" "automatic plugin installation"
+  dokku_log_info1 "Installing Dokku plugin: $plugin_name"
+  ready-dokku-root plugin:install "$plugin_url" --name "$plugin_name"
+  ready-has-command "$command_name" || dokku_log_fail "Plugin installation completed but '${command_name}' is still unavailable."
+}
+
+ready-ensure-postgres-plugin() {
+  if ready-has-command "postgres:create"; then
+    return 0
+  fi
+
+  ready-install-plugin "postgres" "$DOKKU_READY_POSTGRES_PLUGIN_URL" "postgres:create"
+}
+
+ready-ensure-letsencrypt-plugin() {
+  if ready-has-command "letsencrypt:enable"; then
+    return 0
+  fi
+
+  ready-install-plugin "letsencrypt" "$DOKKU_READY_LETSENCRYPT_PLUGIN_URL" "letsencrypt:enable"
+
+  if ready-has-command "letsencrypt:cron-job"; then
+    set +e
+    ready-dokku-root letsencrypt:cron-job --add >/dev/null 2>&1
+    set -e
+  fi
 }
 
 ready-validate-ipv4() {
@@ -210,11 +267,7 @@ ready-configure-proxy-ports() {
 
 ready-try-enable-ssl() {
   local app="$1" email="$2" exit_code=0
-
-  if ! ready-has-command "letsencrypt:enable"; then
-    dokku_log_warn "dokku-letsencrypt is not installed. Skipping SSL setup."
-    return 0
-  fi
+  ready-ensure-letsencrypt-plugin
 
   if [[ -n "$email" ]]; then
     if ready-has-command "letsencrypt:set"; then

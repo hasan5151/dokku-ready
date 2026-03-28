@@ -126,11 +126,12 @@ cmd-ready-create() {
   ready-configure-proxy-ports "$app" "$container_port"
 
   if [[ "$ssl_mode" == "yes" ]]; then
+    ready-ensure-letsencrypt-plugin
     ready-bootstrap-app-image "$app" "$container_port"
   fi
 
   if [[ "$postgres_mode" == "yes" ]]; then
-    ready-assert-command "postgres:create" "postgres service creation"
+    ready-ensure-postgres-plugin
     ready-assert-command "postgres:link" "postgres service linking"
 
     ready-postgres-exists "$postgres_service" && dokku_log_fail "Postgres service already exists: $postgres_service"

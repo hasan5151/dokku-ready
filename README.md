@@ -71,7 +71,7 @@ sudo dokku plugin:install file:///absolute/path/to/dokkuready --name ready
 To install it from a git repository:
 
 ```bash
-sudo dokku plugin:install https://github.com/<user>/<repo>.git --name ready
+sudo dokku plugin:install https://github.com/hasan5151/dokku-ready.git --name ready
 ```
 
 Verify the installation with:

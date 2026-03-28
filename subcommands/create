@@ -70,7 +70,6 @@ cmd-ready-create() {
   done
 
   [[ -z "$app" ]] && dokku_log_fail "Please specify an app name: dokku ready:create <app>"
-  verify_app_name "$app"
   ready-app-exists "$app" && dokku_log_fail "App already exists: $app"
 
   if [[ -z "$domain" ]]; then

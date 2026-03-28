@@ -305,6 +305,7 @@ ready-bootstrap-app-image() {
 
   cat >"$tmp_dir/Dockerfile" <<EOF
 FROM ${DOKKU_READY_BOOTSTRAP_BASE_IMAGE}
+RUN apk add --no-cache busybox-extras
 RUN mkdir -p /srv/www
 RUN printf 'dokku ready bootstrap for ${app}\n' >/srv/www/index.html
 ENV PORT=${container_port}

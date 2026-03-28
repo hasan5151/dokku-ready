@@ -24,7 +24,15 @@ ready-trim() {
 
 ready-has-command() {
   local cmd="$1"
-  ready-dokku help --all 2>/dev/null | grep -qE "(^|[[:space:]])${cmd}([[:space:]]|$)"
+  local status=0
+  local not_implemented="${DOKKU_NOT_IMPLEMENTED_EXIT:-10}"
+
+  set +e
+  ready-dokku "$cmd" >/dev/null 2>&1
+  status="$?"
+  set -e
+
+  [[ "$status" -ne "$not_implemented" ]]
 }
 
 ready-assert-command() {

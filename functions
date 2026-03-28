@@ -300,8 +300,6 @@ ready-bootstrap-app-image() {
   local app="$1" container_port="$2"
   local tmp_dir
 
-  ready-assert-command "tar:in" "temporary image deployment"
-
   tmp_dir="$(mktemp -d "/tmp/dokku-ready-${app}.XXXXXX")"
   trap 'rm -rf "$tmp_dir"' RETURN
 
@@ -315,10 +313,23 @@ CMD ["sh", "-c", "httpd -f -p \${PORT} -h /srv/www"]
 EOF
 
   dokku_log_info1 "Deploying temporary bootstrap app"
-  (
-    cd "$tmp_dir"
-    tar -cf - .
-  ) | ready-dokku tar:in "$app"
+  if ready-has-command "git:from-archive"; then
+    (
+      cd "$tmp_dir"
+      tar -cf - .
+    ) | ready-dokku git:from-archive "$app" -- "Dokku Ready" "ready@local"
+    return 0
+  fi
+
+  if ready-has-command "tar:in"; then
+    (
+      cd "$tmp_dir"
+      tar -cf - .
+    ) | ready-dokku tar:in "$app"
+    return 0
+  fi
+
+  dokku_log_fail "Neither 'git:from-archive' nor 'tar:in' is available on this Dokku installation."
 }
 
 ready-linked-postgres-services() {

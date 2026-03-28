@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+cmd-ready-delete() {
+  #E destroy a Dokku app and the linked postgres service after explicit confirmation
+  #E dokku ready:delete myapp
+  #A app, app to delete
+  #F -f|--force, skip the typed confirmation prompt
+  declare desc="delete an app and its linked ready-managed resources"
+  local cmd="$PLUGIN_COMMAND_PREFIX:delete" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+
+  local app="$1" force_delete="false" confirmation
+  shift || true
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -f|--force)
+        force_delete="true"
+        shift 1
+        ;;
+      *)
+        dokku_log_fail "Unknown flag: $1"
+        ;;
+    esac
+  done
+
+  [[ -z "$app" ]] && dokku_log_fail "Please specify an app name: dokku ready:delete <app>"
+  verify_app_name "$app"
+  ready-app-exists "$app" || dokku_log_fail "App does not exist: $app"
+  ready-assert-command "apps:destroy" "app deletion"
+
+  if [[ "$force_delete" != "true" ]]; then
+    dokku_log_warn "WARNING: Potentially Destructive Action"
+    dokku_log_warn "This will permanently delete the app, its domains, port mappings, releases, and linked postgres services."
+    dokku_log_warn "Type 'yes' to continue."
+    read -rp "> " confirmation
+
+    if [[ "$(ready-trim "$confirmation")" != "yes" ]]; then
+      dokku_log_warn "Confirmation was not 'yes'. Aborted."
+      exit 1
+    fi
+  fi
+
+  if ready-has-command "letsencrypt:disable"; then
+    set +e
+    ready-dokku letsencrypt:disable "$app" >/dev/null 2>&1
+    set -e
+  fi
+
+  if ready-has-command "postgres:destroy"; then
+    ready-destroy-linked-postgres-services "$app"
+  fi
+
+  dokku_log_info1 "Destroying app: $app"
+  ready-dokku apps:destroy "$app" --force
+
+  dokku_log_info2 "ready:delete completed for $app"
+}
+
+cmd-ready-delete "$@"

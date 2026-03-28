@@ -1,0 +1,4 @@
+[plugin]
+description = "Dokku Ready interactive app bootstrap and cleanup plugin"
+version = "0.1.0"
+[plugin.config]

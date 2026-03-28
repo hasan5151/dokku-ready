@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+[[ " help $PLUGIN_COMMAND_PREFIX:help $PLUGIN_COMMAND_PREFIX $PLUGIN_COMMAND_PREFIX:default " == *" $1 "* ]] || [[ "$1" == "$PLUGIN_COMMAND_PREFIX:"* ]] || exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+case "$1" in
+  help | ready | ready:help)
+    help_content() {
+      cat <<EOF
+    ready,display help for the ready plugin
+    ready:create <app>,interactively create an app, domain, ports, optional postgres, and SSL
+    ready:delete <app>,destroy the app and linked postgres after explicit confirmation
+EOF
+    }
+
+    if [[ "$1" == "ready:help" ]]; then
+      cat <<EOF
+Usage: dokku ready:create <app>
+       dokku ready:delete <app>
+
+Interactive Dokku bootstrap helpers.
+
+Examples:
+  dokku ready:create blog
+  dokku ready:delete blog
+
+Additional commands:
+EOF
+      help_content | sort | column -c2 -t -s,
+    else
+      help_content
+    fi
+    ;;
+  *)
+    exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+    ;;
+esac

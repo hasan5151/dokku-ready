@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+cmd-ready-default() {
+  declare desc="show help for the ready plugin"
+  declare cmd="$PLUGIN_COMMAND_PREFIX"
+  [[ "$1" == "$cmd" ]] && shift 1
+
+  "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/commands" "ready:help"
+}
+
+cmd-ready-default "$@"

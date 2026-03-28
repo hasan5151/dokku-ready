@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+PLUGIN_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+chmod +x "$PLUGIN_PATH/commands"
+chmod +x "$PLUGIN_PATH/config"
+chmod +x "$PLUGIN_PATH/functions"
+chmod +x "$PLUGIN_PATH/subcommands/default"
+chmod +x "$PLUGIN_PATH/subcommands/create"
+chmod +x "$PLUGIN_PATH/subcommands/delete"
+
+echo "Dokku Ready plugin installed"

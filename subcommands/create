@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
+
+cmd-ready-create() {
+  #E interactively create a Dokku app with domain, ports, optional postgres and SSL
+  #E dokku ready:create myapp
+  #A app, app to create
+  #F --domain example.com, domain to assign without prompting
+  #F --port 5000, container port for both http and https mappings
+  #F --postgres, create and link a postgres service
+  #F --no-postgres, skip postgres setup
+  #F --postgres-service myapp-postgres, postgres service name
+  #F --ssl, attempt letsencrypt enablement
+  #F --no-ssl, skip ssl setup
+  #F --email ops@example.com, letsencrypt email for the app
+  declare desc="create an app with interactive Dokku bootstrap"
+  local cmd="$PLUGIN_COMMAND_PREFIX:create" argv=("$@")
+  [[ ${argv[0]} == "$cmd" ]] && shift 1
+
+  local app="$1"
+  local domain=""
+  local container_port=""
+  local postgres_mode=""
+  local postgres_service=""
+  local ssl_mode=""
+  local letsencrypt_email=""
+
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --domain)
+        domain="$2"
+        shift 2
+        ;;
+      --port)
+        container_port="$2"
+        shift 2
+        ;;
+      --postgres)
+        postgres_mode="yes"
+        shift 1
+        ;;
+      --no-postgres)
+        postgres_mode="no"
+        shift 1
+        ;;
+      --postgres-service)
+        postgres_service="$2"
+        shift 2
+        ;;
+      --ssl)
+        ssl_mode="yes"
+        shift 1
+        ;;
+      --no-ssl)
+        ssl_mode="no"
+        shift 1
+        ;;
+      --email)
+        letsencrypt_email="$2"
+        shift 2
+        ;;
+      *)
+        dokku_log_fail "Unknown flag: $1"
+        ;;
+    esac
+  done
+
+  [[ -z "$app" ]] && dokku_log_fail "Please specify an app name: dokku ready:create <app>"
+  verify_app_name "$app"
+  ready-app-exists "$app" && dokku_log_fail "App already exists: $app"
+
+  if [[ -z "$domain" ]]; then
+    domain="$(ready-prompt "Domain (leave empty to generate an sslip.io domain)")"
+    if [[ -z "$domain" ]]; then
+      domain="$(ready-default-domain "$app")"
+      dokku_log_info1 "Generated domain: $domain"
+    fi
+  fi
+
+  if [[ -n "$container_port" ]]; then
+    ready-validate-port "$container_port" || dokku_log_fail "Invalid container port: $container_port"
+  else
+    container_port="$(ready-prompt-port)"
+  fi
+
+  if [[ -z "$postgres_mode" ]]; then
+    if ready-prompt-yes-no "Install Postgres?" "Y"; then
+      postgres_mode="yes"
+    else
+      postgres_mode="no"
+    fi
+  fi
+
+  if [[ "$postgres_mode" == "yes" ]] && [[ -z "$postgres_service" ]]; then
+    postgres_service="$(ready-prompt-required "Postgres service name" "${app}-postgres")"
+  fi
+
+  if [[ -z "$ssl_mode" ]]; then
+    if ready-prompt-yes-no "Attempt SSL setup?" "Y"; then
+      ssl_mode="yes"
+    else
+      ssl_mode="no"
+    fi
+  fi
+
+  if [[ "$ssl_mode" == "yes" ]] && [[ -z "$letsencrypt_email" ]]; then
+    letsencrypt_email="$(ready-prompt "Let's Encrypt email (optional)")"
+  fi
+
+  ready-assert-command "apps:create" "app creation"
+  ready-assert-command "apps:exists" "app existence checks"
+  ready-assert-domain-command
+
+  dokku_log_info1 "Creating app: $app"
+  ready-dokku apps:create "$app"
+
+  dokku_log_info1 "Configuring domain: $domain"
+  ready-configure-domain "$app" "$domain"
+
+  dokku_log_info1 "Mapping http/https to container port $container_port"
+  ready-configure-proxy-ports "$app" "$container_port"
+
+  if [[ "$ssl_mode" == "yes" ]]; then
+    ready-bootstrap-app-image "$app" "$container_port"
+  fi
+
+  if [[ "$postgres_mode" == "yes" ]]; then
+    ready-assert-command "postgres:create" "postgres service creation"
+    ready-assert-command "postgres:link" "postgres service linking"
+
+    ready-postgres-exists "$postgres_service" && dokku_log_fail "Postgres service already exists: $postgres_service"
+
+    dokku_log_info1 "Creating postgres service: $postgres_service"
+    ready-dokku postgres:create "$postgres_service"
+
+    dokku_log_info1 "Linking postgres service to app"
+    ready-dokku postgres:link "$postgres_service" "$app"
+  fi
+
+  if [[ "$ssl_mode" == "yes" ]]; then
+    dokku_log_info1 "Attempting SSL enablement"
+    ready-try-enable-ssl "$app" "$letsencrypt_email"
+  fi
+
+  dokku_log_info2 "ready:create completed for $app"
+  echo "App: $app"
+  echo "Domain: $domain"
+  echo "Container port: $container_port"
+  [[ "$postgres_mode" == "yes" ]] && echo "Postgres: $postgres_service"
+  [[ "$ssl_mode" == "yes" ]] && echo "SSL: attempted"
+}
+
+cmd-ready-create "$@"

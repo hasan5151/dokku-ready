@@ -1,0 +1,7 @@
+README.md text eol=lf
+commands text eol=lf
+config text eol=lf
+functions text eol=lf
+install text eol=lf
+plugin.toml text eol=lf
+subcommands/* text eol=lf

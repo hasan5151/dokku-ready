@@ -149,6 +149,11 @@ cmd-ready-create() {
   dokku_log_info1 "Mapping http/https to container port $container_port"
   ready-configure-proxy-ports "$app" "$container_port"
 
+  if ready-has-command "config:set"; then
+    dokku_log_info1 "Setting PORT config var: $container_port"
+    ready-dokku config:set --no-restart "$app" PORT="$container_port"
+  fi
+
   if [[ "$ssl_mode" == "yes" ]]; then
     ready-ensure-letsencrypt-plugin
     if ready-letsencrypt-active "$app"; then

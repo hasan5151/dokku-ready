@@ -25,8 +25,13 @@ cmd-ready-create() {
   local container_port=""
   local postgres_mode=""
   local postgres_service=""
+  local postgres_service_explicit="false"
   local ssl_mode=""
   local letsencrypt_email=""
+  local app_exists="false"
+  local current_domain=""
+  local current_port=""
+  local current_postgres_service=""
 
   shift || true
   while [[ $# -gt 0 ]]; do
@@ -49,6 +54,7 @@ cmd-ready-create() {
         ;;
       --postgres-service)
         postgres_service="$2"
+        postgres_service_explicit="true"
         shift 2
         ;;
       --ssl)
@@ -70,10 +76,20 @@ cmd-ready-create() {
   done
 
   [[ -z "$app" ]] && dokku_log_fail "Please specify an app name: dokku ready:create <app>"
-  ready-app-exists "$app" && dokku_log_fail "App already exists: $app"
+  if ready-app-exists "$app"; then
+    app_exists="true"
+    dokku_log_info1 "App already exists, continuing: $app"
+    current_domain="$(ready-first-app-domain "$app" || true)"
+    current_port="$(ready-current-container-port "$app" || true)"
+    current_postgres_service="$(ready-first-linked-postgres-service "$app" || true)"
+  fi
 
   if [[ -z "$domain" ]]; then
-    domain="$(ready-prompt "Domain (leave empty to generate an sslip.io domain)")"
+    if [[ -n "$current_domain" ]]; then
+      domain="$(ready-prompt "Domain" "$current_domain")"
+    else
+      domain="$(ready-prompt "Domain (leave empty to generate an sslip.io domain)")"
+    fi
     if [[ -z "$domain" ]]; then
       domain="$(ready-default-domain "$app")"
       dokku_log_info1 "Generated domain: $domain"
@@ -83,7 +99,11 @@ cmd-ready-create() {
   if [[ -n "$container_port" ]]; then
     ready-validate-port "$container_port" || dokku_log_fail "Invalid container port: $container_port"
   else
-    container_port="$(ready-prompt-port)"
+    if [[ -n "$current_port" ]]; then
+      container_port="$(ready-prompt-port "$current_port")"
+    else
+      container_port="$(ready-prompt-port)"
+    fi
   fi
 
   if [[ -z "$postgres_mode" ]]; then
@@ -95,7 +115,11 @@ cmd-ready-create() {
   fi
 
   if [[ "$postgres_mode" == "yes" ]] && [[ -z "$postgres_service" ]]; then
-    postgres_service="$(ready-prompt-required "Postgres service name" "${app}-postgres")"
+    if [[ -n "$current_postgres_service" ]]; then
+      postgres_service="$(ready-prompt-required "Postgres service name" "$current_postgres_service")"
+    else
+      postgres_service="$(ready-prompt-required "Postgres service name" "${app}-postgres")"
+    fi
   fi
 
   if [[ -z "$ssl_mode" ]]; then
@@ -114,8 +138,10 @@ cmd-ready-create() {
   ready-assert-command "apps:exists" "app existence checks"
   ready-assert-domain-command
 
-  dokku_log_info1 "Creating app: $app"
-  ready-dokku apps:create "$app"
+  if [[ "$app_exists" != "true" ]]; then
+    dokku_log_info1 "Creating app: $app"
+    ready-dokku apps:create "$app"
+  fi
 
   dokku_log_info1 "Configuring domain: $domain"
   ready-configure-domain "$app" "$domain"
@@ -125,25 +151,41 @@ cmd-ready-create() {
 
   if [[ "$ssl_mode" == "yes" ]]; then
     ready-ensure-letsencrypt-plugin
-    ready-bootstrap-app-image "$app" "$container_port"
+    if ready-letsencrypt-active "$app"; then
+      dokku_log_info1 "SSL is already active, skipping bootstrap deploy"
+    else
+      ready-bootstrap-app-image "$app" "$container_port"
+    fi
   fi
 
   if [[ "$postgres_mode" == "yes" ]]; then
     ready-ensure-postgres-plugin
     ready-assert-command "postgres:link" "postgres service linking"
 
-    ready-postgres-exists "$postgres_service" && dokku_log_fail "Postgres service already exists: $postgres_service"
+    postgres_service="$(ready-postgres-choose-service "$postgres_service" "$app" "$postgres_service_explicit")"
 
-    dokku_log_info1 "Creating postgres service: $postgres_service"
-    ready-dokku postgres:create "$postgres_service"
+    if ready-postgres-exists "$postgres_service"; then
+      dokku_log_info1 "Reusing postgres service: $postgres_service"
+    else
+      dokku_log_info1 "Creating postgres service: $postgres_service"
+      ready-dokku postgres:create "$postgres_service"
+    fi
 
-    dokku_log_info1 "Linking postgres service to app"
-    ready-dokku postgres:link "$postgres_service" "$app"
+    if ready-postgres-linked-to-app "$postgres_service" "$app"; then
+      dokku_log_info1 "Postgres service is already linked to app"
+    else
+      dokku_log_info1 "Linking postgres service to app"
+      ready-dokku postgres:link "$postgres_service" "$app"
+    fi
   fi
 
   if [[ "$ssl_mode" == "yes" ]]; then
-    dokku_log_info1 "Attempting SSL enablement"
-    ready-try-enable-ssl "$app" "$letsencrypt_email"
+    if ready-letsencrypt-active "$app"; then
+      dokku_log_info1 "SSL is already active"
+    else
+      dokku_log_info1 "Attempting SSL enablement"
+      ready-try-enable-ssl "$app" "$letsencrypt_email"
+    fi
   fi
 
   dokku_log_info2 "ready:create completed for $app"

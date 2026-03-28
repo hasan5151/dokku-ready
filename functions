@@ -106,6 +106,199 @@ ready-postgres-exists() {
   ready-dokku postgres:exists "$1" >/dev/null 2>&1
 }
 
+ready-normalize-space-list() {
+  tr ' ' '\n' | sed '/^[[:space:]]*$/d'
+}
+
+ready-report-single-value() {
+  local output status
+
+  set +e
+  output="$(ready-dokku "$@" 2>/dev/null)"
+  status="$?"
+  set -e
+
+  [[ "$status" -eq 0 ]] || return "$status"
+
+  if [[ "$output" == *:* ]]; then
+    printf '%s\n' "$output" | sed -n 's/^[[:space:]]*[^:]*:[[:space:]]*//p' | head -n 1
+    return 0
+  fi
+
+  printf '%s\n' "$output" | head -n 1
+}
+
+ready-app-domains() {
+  local app="$1" value=""
+
+  if ready-has-command "domains:report"; then
+    value="$(ready-report-single-value domains:report "$app" --domains-app-vhosts 2>/dev/null || true)"
+    if [[ -z "$value" ]]; then
+      value="$(ready-dokku domains:report "$app" 2>/dev/null | sed -n 's/^[[:space:]]*Domains app vhosts:[[:space:]]*//p' | head -n 1)"
+    fi
+  elif ready-has-command "domains"; then
+    value="$(ready-dokku domains "$app" 2>/dev/null | sed '/^[[:space:]]*$/d;/^----->/d;/^=====>/d')"
+  fi
+
+  printf '%s\n' "$value" | ready-normalize-space-list
+}
+
+ready-first-app-domain() {
+  ready-app-domains "$1" | head -n 1
+}
+
+ready-app-ports() {
+  local app="$1" value=""
+
+  if ready-has-command "ports:report"; then
+    value="$(ready-report-single-value ports:report "$app" --ports-map 2>/dev/null || true)"
+    if [[ -z "$value" ]]; then
+      value="$(ready-dokku ports:report "$app" 2>/dev/null | sed -n 's/^[[:space:]]*Port map:[[:space:]]*//p' | head -n 1)"
+    fi
+  elif ready-has-command "proxy:ports"; then
+    value="$(ready-dokku proxy:ports "$app" 2>/dev/null | sed '/^[[:space:]]*$/d;/^----->/d;/^=====>/d')"
+  fi
+
+  printf '%s\n' "$value" | ready-normalize-space-list
+}
+
+ready-current-container-port() {
+  local app="$1" mapping
+
+  while read -r mapping; do
+    [[ -z "$mapping" ]] && continue
+    printf '%s' "$mapping" | awk -F: '{print $3}'
+    return 0
+  done < <(ready-app-ports "$app")
+
+  return 1
+}
+
+ready-letsencrypt-active() {
+  local app="$1"
+
+  ready-has-command "letsencrypt:active" || return 1
+  ready-dokku letsencrypt:active "$app" >/dev/null 2>&1
+}
+
+ready-postgres-links() {
+  local service="$1"
+
+  ready-has-command "postgres:links" || return 0
+  ready-dokku postgres:links "$service" 2>/dev/null | sed '/^[[:space:]]*$/d;/^----->/d;/^=====>/d' | awk '{print $1}'
+}
+
+ready-postgres-service-link-count() {
+  local service="$1"
+  local count=0 link
+
+  while read -r link; do
+    [[ -n "$link" ]] && count=$((count + 1))
+  done < <(ready-postgres-links "$service")
+
+  printf '%s' "$count"
+}
+
+ready-postgres-linked-to-app() {
+  local service="$1" app="$2"
+
+  if ready-has-command "postgres:linked"; then
+    ready-dokku postgres:linked "$service" "$app" >/dev/null 2>&1
+    return $?
+  fi
+
+  ready-postgres-links "$service" | grep -qx "$app"
+}
+
+ready-postgres-choose-service() {
+  local requested_service="$1" app="$2" explicit="$3"
+  local service="$requested_service"
+  local suffix=1
+
+  while ready-postgres-exists "$service"; do
+    if ready-postgres-linked-to-app "$service" "$app"; then
+      printf '%s' "$service"
+      return 0
+    fi
+
+    if [[ "$(ready-postgres-service-link-count "$service")" -eq 0 ]]; then
+      printf '%s' "$service"
+      return 0
+    fi
+
+    if [[ "$explicit" == "true" ]]; then
+      dokku_log_fail "Postgres service already exists and is linked elsewhere: $service"
+    fi
+
+    service="${requested_service}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+
+  printf '%s' "$service"
+}
+
+ready-removable-postgres-services() {
+  local app="$1"
+  local default_service="${app}-postgres"
+  local service
+  local seen=" "
+
+  while read -r service; do
+    [[ -z "$service" ]] && continue
+    if [[ "$seen" != *" $service "* ]]; then
+      echo "$service"
+      seen="${seen}${service} "
+    fi
+  done < <(ready-linked-postgres-services "$app")
+
+  if ready-postgres-exists "$default_service" && [[ "$(ready-postgres-service-link-count "$default_service")" -eq 0 ]] && [[ "$seen" != *" $default_service "* ]]; then
+    echo "$default_service"
+  fi
+}
+
+ready-summary-line-list() {
+  local label="$1"
+  shift
+  local items=("$@")
+
+  if [[ "${#items[@]}" -eq 0 ]]; then
+    echo "${label}: none"
+    return 0
+  fi
+
+  echo "${label}: ${items[*]}"
+}
+
+ready-app-delete-summary() {
+  local app="$1"
+  local domains=()
+  local ports=()
+  local postgres_services=()
+  local line
+
+  while read -r line; do
+    [[ -n "$line" ]] && domains+=("$line")
+  done < <(ready-app-domains "$app")
+
+  while read -r line; do
+    [[ -n "$line" ]] && ports+=("$line")
+  done < <(ready-app-ports "$app")
+
+  while read -r line; do
+    [[ -n "$line" ]] && postgres_services+=("$line")
+  done < <(ready-removable-postgres-services "$app")
+
+  echo "App: $app"
+  ready-summary-line-list "Domains" "${domains[@]}"
+  ready-summary-line-list "Ports" "${ports[@]}"
+  ready-summary-line-list "Postgres services" "${postgres_services[@]}"
+  if ready-letsencrypt-active "$app"; then
+    echo "SSL: active"
+  else
+    echo "SSL: inactive or unmanaged"
+  fi
+}
+
 ready-plugin-installed() {
   local plugin_name="$1"
 
@@ -232,10 +425,15 @@ ready-validate-port() {
 }
 
 ready-prompt-port() {
+  local default_port="${1-}"
   local port
 
   while true; do
-    port="$(ready-prompt-required "Container port" "$DOKKU_READY_DEFAULT_PORT")"
+    if [[ -n "$default_port" ]]; then
+      port="$(ready-prompt-required "Container port" "$default_port")"
+    else
+      port="$(ready-prompt-required "Container port" "$DOKKU_READY_DEFAULT_PORT")"
+    fi
     if ready-validate-port "$port"; then
       printf '%s' "$port"
       return 0
@@ -345,24 +543,17 @@ ready-linked-postgres-services() {
     | awk '{print $1}'
 }
 
+ready-first-linked-postgres-service() {
+  ready-linked-postgres-services "$1" | head -n 1
+}
+
 ready-destroy-linked-postgres-services() {
-  local app="$1" default_service="${app}-postgres" service
+  local app="$1" service
   local services=()
-  local seen=" "
-
-  if ready-has-command "postgres:app-links"; then
-    while read -r service; do
-      [[ -z "$service" ]] && continue
-      if [[ "$seen" != *" $service "* ]]; then
-        services+=("$service")
-        seen="${seen}${service} "
-      fi
-    done < <(ready-linked-postgres-services "$app")
-  fi
-
-  if ready-has-command "postgres:exists" && ready-postgres-exists "$default_service" && [[ "$seen" != *" $default_service "* ]]; then
-    services+=("$default_service")
-  fi
+  
+  while read -r service; do
+    [[ -n "$service" ]] && services+=("$service")
+  done < <(ready-removable-postgres-services "$app")
 
   for service in "${services[@]}"; do
     dokku_log_info1 "Removing postgres service: $service"

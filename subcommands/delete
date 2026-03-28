@@ -37,6 +37,9 @@ cmd-ready-delete() {
   if [[ "$force_delete" != "true" ]]; then
     dokku_log_warn "WARNING: Potentially Destructive Action"
     dokku_log_warn "This will permanently delete the app, its domains, port mappings, releases, and linked postgres services."
+    echo ""
+    ready-app-delete-summary "$app"
+    echo ""
     dokku_log_warn "Type 'yes' to continue."
     read -rp "> " confirmation
 

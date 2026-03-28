@@ -19,23 +19,27 @@ This command performs the following steps in order:
 - creates and links the Postgres service if enabled
 - asks whether SSL should be enabled
 - installs the official `dokku-letsencrypt` plugin automatically if needed
-- if SSL is enabled, builds and deploys a temporary image on the Dokku host without requiring `git push`
+- if SSL is enabled, deploys a temporary bootstrap app on the Dokku host without requiring `git push`
 - attempts SSL setup
 
 Notes:
 
+- If the app already exists, Dokku Ready continues and reconciles the requested state instead of failing immediately.
 - If `postgres` or `dokku-letsencrypt` is missing, Dokku Ready attempts to install the official plugin automatically.
 - Automatic plugin installation requires root privileges or passwordless `sudo`.
 - Automatic `sslip.io` generation requires a detectable public IPv4 address or a preset `DOKKU_READY_PUBLIC_IP`.
 - Let's Encrypt activation may fail until the app is deployed and DNS points to the Dokku server. In that case the plugin only shows a warning.
 - The temporary bootstrap deploy exists only to make the app answer HTTP requests so certificate issuance can succeed.
+- If the default Postgres service name already exists, Dokku Ready reuses it when safe, or allocates a suffixed name such as `blog-postgres-1`.
 
 ### `dokku ready:delete <app>`
 
 This command requires typing `yes` before deletion. After confirmation it:
 
+- shows a deletion summary including domains, ports, SSL state, and removable Postgres services
 - deletes the app with `apps:destroy --force`
 - unlinks and destroys linked Postgres services
+- removes an orphan default Postgres service such as `<app>-postgres` when it exists and has no links
 - attempts to disable SSL
 
 ## Examples
@@ -49,6 +53,27 @@ Create an app and let Dokku Ready generate an `sslip.io` domain automatically:
 
 ```bash
 dokku ready:create myapp
+```
+
+Real flow example:
+
+```text
+$ sudo dokku ready:create blog
+Domain (leave empty to generate an sslip.io domain):
+-----> Generated domain: blog.203.0.113.10.sslip.io
+Container port [5000]:
+Install Postgres? [Y]: y
+Postgres service name [blog-postgres]:
+Attempt SSL setup? [Y]: y
+Let's Encrypt email (optional):
+-----> Creating app: blog
+-----> Configuring domain: blog.203.0.113.10.sslip.io
+-----> Mapping http/https to container port 5000
+-----> Creating postgres service: blog-postgres
+-----> Linking postgres service to app
+-----> Deploying temporary bootstrap app
+-----> Attempting SSL enablement
+=====> App ready
 ```
 
 Flags are also available for non-interactive usage:
@@ -86,6 +111,8 @@ To update the plugin on the server after new commits are pushed:
 ```bash
 sudo dokku plugin:update ready
 ```
+
+`plugin:update` is the supported Dokku workflow for git-backed plugins and runs the plugin `update` trigger after fetching the latest commit.
 
 ## Requirements
 

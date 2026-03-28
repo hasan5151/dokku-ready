@@ -81,6 +81,12 @@ dokku plugin:list
 dokku ready:help
 ```
 
+To update the plugin on the server after new commits are pushed:
+
+```bash
+sudo dokku plugin:update ready
+```
+
 ## Requirements
 
 - Dokku must already be installed on the target server.

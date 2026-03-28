@@ -298,10 +298,11 @@ ready-try-enable-ssl() {
 
 ready-bootstrap-app-image() {
   local app="$1" container_port="$2"
-  local image_name="${DOKKU_READY_BOOTSTRAP_IMAGE_PREFIX}:${app}"
+  local image_tag="ready-bootstrap"
+  local image_name="dokku/${app}:${image_tag}"
   local tmp_dir
 
-  ready-assert-command "git:from-image" "temporary image deployment"
+  ready-assert-command "tags:deploy" "temporary image deployment"
 
   tmp_dir="$(mktemp -d "/tmp/dokku-ready-${app}.XXXXXX")"
   trap 'rm -rf "$tmp_dir"' RETURN
@@ -322,7 +323,7 @@ EOF
     -t "$image_name" "$tmp_dir"
 
   dokku_log_info1 "Deploying temporary bootstrap image"
-  ready-dokku git:from-image "$app" "$image_name" "Dokku Ready" "ready@local"
+  ready-dokku tags:deploy "$app" "$image_tag"
 }
 
 ready-linked-postgres-services() {

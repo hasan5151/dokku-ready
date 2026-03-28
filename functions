@@ -176,9 +176,29 @@ ready-current-container-port() {
 
 ready-letsencrypt-active() {
   local app="$1"
+  local value=""
+  local status=0
 
-  ready-has-command "letsencrypt:active" || return 1
-  ready-dokku letsencrypt:active "$app" >/dev/null 2>&1
+  if ready-has-command "letsencrypt:report"; then
+    value="$(ready-report-single-value letsencrypt:report "$app" --letsencrypt-active 2>/dev/null || true)"
+    if [[ -z "$value" ]]; then
+      value="$(ready-dokku letsencrypt:report "$app" 2>/dev/null | sed -n 's/^[[:space:]]*Letsencrypt active:[[:space:]]*//p' | head -n 1)"
+    fi
+    [[ "$value" == "true" ]]
+    return $?
+  fi
+
+  if ready-has-command "letsencrypt:active"; then
+    set +e
+    value="$(ready-dokku letsencrypt:active "$app" 2>/dev/null | tr -d '\r\n')"
+    status="$?"
+    set -e
+
+    [[ "$value" == "true" ]] && return 0
+    [[ "$status" -eq 0 ]] && [[ "$value" != "false" ]] && return 0
+  fi
+
+  return 1
 }
 
 ready-postgres-links() {

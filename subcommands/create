@@ -8,7 +8,6 @@ source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/functions"
 cmd-ready-create() {
   #E interactively create a Dokku app with domain, ports, optional postgres and SSL
   #E dokku ready:create myapp
-  #A app-name, app name to create
   #F --domain example.com, domain to assign without prompting
   #F --port 5000, container port for both http and https mappings
   #F --postgres, create and link a postgres service

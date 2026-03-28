@@ -10,14 +10,14 @@ case "$1" in
     help_content() {
       cat <<EOF
     ready,display help for the ready plugin
-    ready:create <app>,interactively create an app, domain, ports, optional postgres, and SSL
+    ready:create <name>,interactively create an app, domain, ports, optional postgres, and SSL
     ready:delete <app>,destroy the app and linked postgres after explicit confirmation
 EOF
     }
 
     if [[ "$1" == "ready:help" ]]; then
       cat <<EOF
-Usage: dokku ready:create <app>
+Usage: dokku ready:create <name>
        dokku ready:delete <app>
 
 Interactive Dokku bootstrap helpers.
